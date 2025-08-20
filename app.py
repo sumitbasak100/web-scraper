@@ -7,10 +7,10 @@ app = Flask(__name__)
 def scrape_webpage(url):
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(url, headers=headers, timeout=10)
-    
+
     if response.status_code != 200:
         return {"error": f"Failed to fetch page: {response.status_code}"}
-    
+
     soup = BeautifulSoup(response.text, "html.parser")
 
     # Title
@@ -30,27 +30,30 @@ def scrape_webpage(url):
         "h4": [h.get_text(strip=True) for h in soup.find_all("h4")]
     }
 
-    # Images + alt text
-    images = []
-    for img in soup.find_all("img"):
-        images.append({
-            "src": img.get("src"),
-            "alt": img.get("alt", "").strip()
-        })
-
-    # Full text (remove scripts/styles)
+    # Remove scripts/styles/noscripts
     for script in soup(["script", "style", "noscript"]):
         script.extract()
-    text_content = soup.get_text(separator=" ", strip=True)
 
-    # Build structured data
+    # Collect structured content
+    paragraphs = [p.get_text(strip=True) for p in soup.find_all("p") if p.get_text(strip=True)]
+    lists = [li.get_text(strip=True) for li in soup.find_all("li") if li.get_text(strip=True)]
+    other_text = [div.get_text(strip=True) for div in soup.find_all("div") if div.get_text(strip=True)]
+
+    # Limit very large content
+    paragraphs = paragraphs[:50]  # first 50 paragraphs
+    lists = lists[:50]
+    other_text = other_text[:50]
+
     data = {
         "url": url,
         "title": title,
         "meta_description": meta_description,
         "headings": headings,
-        "images": images,
-        "content_text": text_content[:2000]  # limit text length for API response
+        "content": {
+            "paragraphs": paragraphs,
+            "lists": lists,
+            "other_text": other_text
+        }
     }
 
     return data
@@ -60,7 +63,7 @@ def scrape_api():
     url = request.args.get("url")
     if not url:
         return jsonify({"error": "Missing ?url= parameter"}), 400
-    
+
     try:
         data = scrape_webpage(url)
         return jsonify(data)
